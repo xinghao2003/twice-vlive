@@ -91,8 +91,19 @@
     document.querySelector("#video-date").textContent = `${formatDate(dateOf(video))} · Video ${id}`;
     const player = document.querySelector("#video-player");
     addSubtitleTracks(player, video);
-    player.addEventListener("error", () => showError("The archive could not load this video. It may be unavailable or still in cold storage.", "#player-message"));
-    prepareVideo(player, id);
+    let recoveryStarted = false;
+    player.addEventListener("error", () => {
+      if (!recoveryStarted) {
+        recoveryStarted = true;
+        prepareVideo(player, id);
+      } else {
+        showError("The archive could not load this video after retrieval.", "#player-message");
+      }
+    });
+    // Try the media endpoint first. Available videos begin loading without
+    // waiting for a separate status API request.
+    player.src = `https://vlivearchive.com/api/download/${encodeURIComponent(id)}`;
+    player.load();
     const index = [...videos].sort((a, b) => dateOf(a) - dateOf(b) || Number(idOf(a)) - Number(idOf(b))).findIndex((item) => idOf(item) === String(id));
     const sorted = [...videos].sort((a, b) => dateOf(a) - dateOf(b) || Number(idOf(a)) - Number(idOf(b)));
     const setNav = (selector, item) => { const link = document.querySelector(selector); link.href = item ? videoUrl(idOf(item)) : "#"; link.setAttribute("aria-disabled", item ? "false" : "true"); };
