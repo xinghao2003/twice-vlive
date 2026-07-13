@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Video player</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page player-page">
+      <a class="back-link" href="index.html">← Back to archive</a>
+      <div id="player-content" hidden>
+        <p class="eyebrow">Video player</p>
+        <h1 id="video-title">Loading…</h1>
+        <p id="video-date" class="muted"></p>
+        <video id="video-player" class="player" controls crossorigin="anonymous" playsinline preload="metadata"></video>
+        <p id="player-message" class="message" hidden></p>
+        <div class="player-controls">
+          <a id="previous-video" class="button" href="#">← Previous</a>
+          <button id="view-toggle" class="button" type="button">Mark as viewed</button>
+          <a id="next-video" class="button" href="#">Next →</a>
+        </div>
+      </div>
+      <p id="player-error" class="message error" hidden></p>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
