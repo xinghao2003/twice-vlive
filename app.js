@@ -2,7 +2,9 @@
   "use strict";
 
   const VIEWED_KEY = "vlive-archive-viewed";
+  const POSITION_KEY = "vlive-archive-positions";
   const viewed = new Set(JSON.parse(localStorage.getItem(VIEWED_KEY) || "[]").map(String));
+  let positions = readPositions();
   let videos = [];
 
   const saveViewed = () => localStorage.setItem(VIEWED_KEY, JSON.stringify([...viewed]));
@@ -11,6 +13,20 @@
   const titleOf = (video) => video.officialVideo.title || video.title || `Video ${idOf(video)}`;
   const formatDate = (timestamp) => timestamp ? new Date(timestamp).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "Unknown date";
   const videoUrl = (id) => `video.html?id=${encodeURIComponent(id)}`;
+  function readPositions() {
+    try { return JSON.parse(localStorage.getItem(POSITION_KEY) || "{}"); } catch { return {}; }
+  }
+  function formatTime(seconds) {
+    const total = Math.max(0, Math.floor(Number(seconds) || 0));
+    const minutes = Math.floor(total / 60);
+    return `${minutes}:${String(total % 60).padStart(2, "0")}`;
+  }
+  function savePosition(id, seconds, duration) {
+    if (!Number.isFinite(seconds) || seconds < 1) return;
+    if (Number.isFinite(duration) && duration > 0 && seconds >= duration - 5) delete positions[String(id)];
+    else positions[String(id)] = Math.floor(seconds);
+    localStorage.setItem(POSITION_KEY, JSON.stringify(positions));
+  }
   function subtitleTracks(video) {
     const captions = Array.isArray(video.captions) ? video.captions : [];
     const subtitles = Array.isArray(video.subtitles) ? video.subtitles : [];
@@ -65,13 +81,18 @@
     list.innerHTML = sorted.map((video) => {
       const id = idOf(video);
       const isViewed = viewed.has(id);
+      const position = positions[id];
+      const progress = position ? ` · Resume ${formatTime(position)}` : "";
       return `<a class="video-row" href="${videoUrl(id)}">
-        <span><h2>${escapeHtml(titleOf(video))}</h2><p class="muted">${formatDate(dateOf(video))} · Video ${escapeHtml(id)}</p></span>
+        <span><h2>${escapeHtml(titleOf(video))}</h2><p class="muted">${formatDate(dateOf(video))} · Video ${escapeHtml(id)}${progress}</p></span>
         <span class="status ${isViewed ? "viewed" : ""}">${isViewed ? "Viewed" : "Not viewed"}</span>
       </a>`;
     }).join("");
     const remaining = videos.filter((video) => !viewed.has(idOf(video))).length;
     document.querySelector("#view-summary").textContent = `${videos.length - remaining} viewed · ${remaining} remaining`;
+    const resumeCount = videos.filter((video) => Number(positions[idOf(video)]) > 0).length;
+    const resumeSummary = document.querySelector("#resume-summary");
+    if (resumeSummary) resumeSummary.textContent = resumeCount ? `${resumeCount} in progress` : "";
     const next = sorted.find((video) => !viewed.has(idOf(video)));
     const nextLink = document.querySelector("#next-unwatched");
     nextLink.href = next ? videoUrl(idOf(next)) : "#";
@@ -90,6 +111,37 @@
     document.querySelector("#video-title").textContent = titleOf(video);
     document.querySelector("#video-date").textContent = `${formatDate(dateOf(video))} · Video ${id}`;
     const player = document.querySelector("#video-player");
+    const resumeMessage = document.querySelector("#resume-message");
+    const savedPosition = Number(positions[String(id)] || 0);
+    let positionRestored = false;
+    let lastSavedPosition = -1;
+    const persistPosition = () => {
+      if (!positionRestored) return;
+      const current = player.currentTime;
+      if (Math.abs(current - lastSavedPosition) < 2 && !player.ended) return;
+      lastSavedPosition = current;
+      savePosition(id, current, player.duration);
+    };
+    const restorePosition = () => {
+      if (positionRestored || !Number.isFinite(player.duration)) return;
+      positionRestored = true;
+      if (savedPosition > 0 && savedPosition < player.duration - 5) {
+        try { player.currentTime = savedPosition; } catch {}
+        if (resumeMessage) {
+          resumeMessage.textContent = `Resuming from ${formatTime(savedPosition)}.`;
+          resumeMessage.hidden = false;
+        }
+      } else {
+        delete positions[String(id)];
+      }
+    };
+    player.addEventListener("loadedmetadata", restorePosition, { once: true });
+    player.addEventListener("timeupdate", persistPosition);
+    player.addEventListener("pause", persistPosition);
+    player.addEventListener("ended", () => { delete positions[String(id)]; localStorage.setItem(POSITION_KEY, JSON.stringify(positions)); });
+    window.addEventListener("pagehide", persistPosition);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") persistPosition(); });
+    setupMediaSession(player, video);
     addSubtitleTracks(player, video);
     let recoveryStarted = false;
     player.addEventListener("error", () => {
@@ -112,6 +164,21 @@
     const updateToggle = () => { toggle.textContent = viewed.has(String(id)) ? "Mark as not viewed" : "Mark as viewed"; };
     updateToggle();
     toggle.addEventListener("click", () => { viewed.has(String(id)) ? viewed.delete(String(id)) : viewed.add(String(id)); saveViewed(); updateToggle(); });
+  }
+
+  function setupMediaSession(player, video) {
+    if (!("mediaSession" in navigator) || !("MediaMetadata" in window)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({ title: titleOf(video), artist: "VLIVE archive", album: "Video archive" });
+    const actions = {
+      play: () => player.play(), pause: () => player.pause(),
+      seekbackward: () => { player.currentTime = Math.max(0, player.currentTime - 10); },
+      seekforward: () => { player.currentTime = Math.min(player.duration || Infinity, player.currentTime + 10); },
+    };
+    Object.entries(actions).forEach(([action, handler]) => {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch {}
+    });
+    ["play", "playing"].forEach((event) => player.addEventListener(event, () => { navigator.mediaSession.playbackState = "playing"; }));
+    ["pause", "ended"].forEach((event) => player.addEventListener(event, () => { navigator.mediaSession.playbackState = "paused"; }));
   }
 
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char])); }
