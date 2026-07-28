@@ -143,13 +143,29 @@
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") persistPosition(); });
     setupMediaSession(player, video);
     addSubtitleTracks(player, video);
+    const iframe = document.querySelector("#video-iframe");
+    const iframeUrl = typeof video.alt_url?.iframe === "string" ? video.alt_url.iframe : "";
+    let iframeStarted = false;
+    const useIframeFallback = (reason) => {
+      if (iframeStarted) return;
+      if (!iframeUrl) { showError(reason, "#player-message"); return; }
+      iframeStarted = true;
+      player.pause();
+      player.hidden = true;
+      iframe.src = iframeUrl;
+      iframe.hidden = false;
+      const message = document.querySelector("#player-message");
+      message.textContent = "The archive video is unavailable. Playing the backup player instead.";
+      message.hidden = false;
+    };
     let recoveryStarted = false;
     player.addEventListener("error", () => {
+      if (iframeStarted) return;
       if (!recoveryStarted) {
         recoveryStarted = true;
-        prepareVideo(player, id);
+        prepareVideo(player, id, useIframeFallback);
       } else {
-        showError("The archive could not load this video after retrieval.", "#player-message");
+        useIframeFallback("The archive could not load this video after retrieval.");
       }
     });
     // Try the media endpoint first. Available videos begin loading without
@@ -185,7 +201,7 @@
   function showError(message, selector) { const element = document.querySelector(selector); element.textContent = message; element.hidden = false; }
   const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-  async function prepareVideo(player, id) {
+  async function prepareVideo(player, id, onFailure) {
     const message = document.querySelector("#player-message");
     const setMessage = (text) => { message.textContent = text; message.hidden = !text; };
     const source = `https://vlivearchive.com/api/download/${encodeURIComponent(id)}`;
@@ -217,13 +233,10 @@
       }
       throw new Error("The archive is taking longer than expected to retrieve this video. Please try again later.");
     } catch (error) {
-      // Keep a direct playback fallback if the status service is temporarily unavailable.
       if (error.message.startsWith("Status request")) {
-        setMessage("Availability could not be checked. Trying the archive player directly…");
-        player.src = source;
-        player.load();
+        onFailure("Availability could not be checked, and the archive video could not be loaded.");
       } else {
-        showError(error.message, "#player-message");
+        onFailure(error.message);
       }
     }
   }
