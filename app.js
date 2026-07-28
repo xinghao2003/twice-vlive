@@ -157,6 +157,10 @@
       const message = document.querySelector("#player-message");
       message.textContent = "The archive video is unavailable. Playing the backup player instead.";
       message.hidden = false;
+      if (savedPosition > 0 && resumeMessage) {
+        resumeMessage.textContent = `You previously stopped at ${formatTime(savedPosition)}. Please jump to that point manually in the backup player.`;
+        resumeMessage.hidden = false;
+      }
     };
     let recoveryStarted = false;
     player.addEventListener("error", () => {
